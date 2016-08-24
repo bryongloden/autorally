@@ -11,6 +11,15 @@ case $key in
 esac
 done
 
+# The following function was pulled from
+# http://stackoverflow.com/a/8574392
+containsElement () {
+  local e
+  for e in "${@:2}"; do [[ "$e" == "$1" ]] && return 0; done
+  return 1
+}
+
+# Get list of devices connected to computer
 if [[ $MASTER_HOSTNAME == "localhost" ]]
     then
         devList=$(ls /dev/)
@@ -26,21 +35,12 @@ if [[ $devList == *"arChassis"* ]] # If Arduino Due is connected...
     then
         AR_CHASSIS_SERIAL=`udevadm info --query=property --name=/dev/arChassis | grep 'ID_SERIAL_SHORT'`
         AR_CHASSIS_SERIAL=${AR_CHASSIS_SERIAL#*=}
-        if [ $AR_CHASSIS_SERIAL == '75439313737351F052A0' ]
+        if [ $AR_CHASSIS_SERIAL == 'ARDUINO_DUE_SERIAL_NUMBER' ]
           then
-            export AR_CHASSIS="gamma"
-        fi
-fi
-if [[ $devList == *"arServoController"* ]] # If Pololu Servo Controller is connected...
-    then
-        AR_CHASSIS_SERIAL=`udevadm info --query=property --name=/dev/arServoController | grep 'ID_SERIAL_SHORT'`
-        AR_CHASSIS_SERIAL=${AR_CHASSIS_SERIAL#*=}
-        if [ $AR_CHASSIS_SERIAL == '00082495' ]
-          then
-            export AR_CHASSIS="beta"
-        elif [ $AR_CHASSIS_SERIAL == '00026587' ]
-          then
-            export AR_CHASSIS="alpha"
+            export AR_CHASSIS="CHASSIS_NAME"
+        #elif [ $AR_CHASSIS_SERIAL == 'ARDUINO_DUE_SERIAL_NUMBER2' ]
+        #  then
+        #    export AR_CHASSIS="CHASSIS_NAME2"
         fi
 fi
 if [[ $DEBUG == true ]]; then
@@ -48,25 +48,47 @@ if [[ $DEBUG == true ]]; then
 fi
 
 # Setup cameras
-if [[ $devList == *"arCamera_b09d0100d70a0a"* ]]
-    then
-        export AR_RIGHTCAM="b09d0100d70a0a"
-elif [[ $devList == *"arCamera_b09d0100d70a17"* ]]
-    then
-        export AR_RIGHTCAM="b09d0100d70a17"
-fi
-if [[ $DEBUG == true ]]; then
-    echo "AR_RIGHTCAM set to ${AR_RIGHTCAM}"
-fi
 
-if [[ $devList == *"arCamera_b09d0100d70a1c"* ]]
-    then
-        export AR_LEFTCAM="b09d0100d70a1c"
-elif [[ $devList == *"arCamera_b09d0100c6fd73"* ]]
-    then
-        export AR_LEFTCAM="b09d0100c6fd73"
-fi
+## Add camera serial numbers to these two arrays to add them to the system
+rightSerials=("serial1" "serial2")
+leftSerials=("serial1" "serial2")
+
+export AR_RIGHTCAM_CONNECTED=false
+export AR_LEFTCAM_CONNECTED=false
+
+## For each Flea3 camera attached
+while read line
+do
+    ## Parse bus number and device number from lsusb results
+    BUS=$(echo $line | grep -o -E 'Bus [0-9]*' | grep -o -E '[0-9]*')
+    DEVICE=$(echo $line | grep -o -E 'Device [0-9]*' | grep -o -E '[0-9]*')
+    
+    ## Query device for hexadecimal serial number
+    SERIAL=$(udevadm info --query=property /dev/bus/usb/$BUS/$DEVICE | grep "ID_SERIAL_SHORT" | sed 's/ID_SERIAL_SHORT=//g')
+    
+    ## Covert hexadecimal serial number to decimal format
+    SERIAL=$((0x$SERIAL))
+
+    ## Check serial number against list of right camera serials
+    containsElement ${SERIAL} "${rightSerials[@]}"
+    if [ $? == 0 ]; then
+        export AR_RIGHTCAM=${SERIAL}
+        export AR_RIGHTCAM_CONNECTED=true
+    fi
+
+    ## Check serial number against list of left camera serials
+    containsElement ${SERIAL} "${leftSerials[@]}"
+    if [ $? == 0 ]; then
+        export AR_LEFTCAM=${SERIAL}
+        export AR_LEFTCAM_CONNECTED=true
+    fi
+
+done <<< "$(lsusb | grep '1e10:\(3300\|300a\)')" # Use lsusb to find all PointGrey Flea3 cameras plugged in right now
+
 if [[ $DEBUG == true ]]; then
-    echo "AR_LEFTCAM set to ${AR_LEFTCAM}"
+    echo "AR_RIGHTCAM           = ${AR_RIGHTCAM}"
+    echo "AR_RIGHTCAM_CONNECTED = ${AR_RIGHTCAM_CONNECTED}"
+    echo "AR_LEFTCAM            = ${AR_LEFTCAM}"
+    echo "AR_LEFTCAM_CONNECTED  = ${AR_LEFTCAM_CONNECTED}"
 fi
 
